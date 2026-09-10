@@ -1,14 +1,18 @@
 # Coolify deployment (build pack: dockercompose, compose location /coolify-compose.yaml).
 #
 # Why a compose resource instead of the Dockerfile build pack: the Dockerfile
-# path builds a generated compose that Coolify owns, and that build of Coolify
+# path builds a generated compose that Coolify owns, and this build of Coolify
 # exposes no storage API (`/applications/{uuid}/storages` 404s, PATCH rejects
 # every storage field) and silently drops `custom_docker_run_options` — so the
 # harness home could never be a volume and every restart wiped sessions and the
 # browser-session credential. Declaring the volumes here fixes that.
 #
-# Environment comes from the app's variables via Coolify's .env in the project
-# directory (compose interpolation). Never hardcode secrets in this file.
+# Two things Coolify does to this file, so don't fight them:
+#   * it appends `env_file: .env`, which is where the app's variables (including
+#     DEEPSEEK_API_KEY) reach the container — never duplicate a ${VAR} secret in
+#     `environment:`, because a literal value there overrides the env file.
+#   * it escapes `${...}` in labels to literal text, so a label must carry a
+#     plain value: a templated Traefik rule would silently never match.
 services:
   dsh-web:
     build:
@@ -19,12 +23,8 @@ services:
     image: dsh-web:${DSH_VERSION:-0.1.2-rc.1}
     container_name: dsh-web
     restart: unless-stopped
-    environment:
-      DSH_HOME: /home/dsh/.dsh
-      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:?DEEPSEEK_API_KEY must be set in Coolify}
-      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
-      # authorities the harness's browser-trust fence accepts besides loopback
-      DSH_TRUSTED_HOSTS: ${DSH_TRUSTED_HOSTS:-}
+    # DEEPSEEK_API_KEY / DSH_HOME / DEEPSEEK_BASE_URL / DSH_TRUSTED_HOSTS come
+    # from Coolify's env_file (.env in the project directory).
     # the raw port is unreachable while UAB's ACL filters it, but it is what a
     # VPN/tailnet/LAN client uses; the working public ingress is the Traefik
     # router below on :80
@@ -40,7 +40,7 @@ services:
       - traefik.enable=true
       - traefik.docker.network=coolify
       - traefik.http.routers.dsh-web-http.entrypoints=http
-      - traefik.http.routers.dsh-web-http.rule=Host(`${DSH_PUBLIC_HOST:-fko8440w84kk8wgkko0sk8k8.138.26.48.197.sslip.io}`)
+      - traefik.http.routers.dsh-web-http.rule=Host(`fko8440w84kk8wgkko0sk8k8.138.26.48.197.sslip.io`)
       - traefik.http.routers.dsh-web-http.service=dsh-web
       - traefik.http.services.dsh-web.loadbalancer.server.port=8080
     healthcheck:
