@@ -1,0 +1,48 @@
+name: dsh-web
+
+services:
+  dsh-web:
+    build:
+      context: .
+      args:
+        DSH_VERSION: ${DSH_VERSION:-0.1.2-rc.1}
+    image: dsh-web:${DSH_VERSION:-0.1.2-rc.1}
+    container_name: dsh-web
+    # background + comes back after Docker Desktop / the machine restarts
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DSH_HOME: /home/dsh/.dsh
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+    # same absolute path as the host so prompts and tool output stay consistent
+    working_dir: /Users/jeremy/repos
+    ports:
+      # loopback-only, same as the foreground `dsh web` bind
+      - "127.0.0.1:3080:3080"
+    volumes:
+      # harness home: profiles, sessions, credentials, settings
+      - dsh-home:/home/dsh/.dsh
+      # the working tree the agent edits; set DSH_WORKSPACE to change it
+      - ${DSH_WORKSPACE:-/Users/jeremy/repos}:/Users/jeremy/repos
+    healthcheck:
+      # The UI answers 401 until a browser session authenticates, so either
+      # 200 or 401 proves the listener is up.
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3080/').then(r=>process.exit([200,401].includes(r.status)?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  dsh-home:
+    name: dsh-home
