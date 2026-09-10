@@ -1,0 +1,66 @@
+# Coolify deployment (build pack: dockercompose, compose location /coolify-compose.yaml).
+#
+# Why a compose resource instead of the Dockerfile build pack: the Dockerfile
+# path builds a generated compose that Coolify owns, and that build of Coolify
+# exposes no storage API (`/applications/{uuid}/storages` 404s, PATCH rejects
+# every storage field) and silently drops `custom_docker_run_options` — so the
+# harness home could never be a volume and every restart wiped sessions and the
+# browser-session credential. Declaring the volumes here fixes that.
+#
+# Environment comes from the app's variables via Coolify's .env in the project
+# directory (compose interpolation). Never hardcode secrets in this file.
+services:
+  dsh-web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        DSH_VERSION: ${DSH_VERSION:-0.1.2-rc.1}
+    image: dsh-web:${DSH_VERSION:-0.1.2-rc.1}
+    container_name: dsh-web
+    restart: unless-stopped
+    environment:
+      DSH_HOME: /home/dsh/.dsh
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:?DEEPSEEK_API_KEY must be set in Coolify}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+      # authorities the harness's browser-trust fence accepts besides loopback
+      DSH_TRUSTED_HOSTS: ${DSH_TRUSTED_HOSTS:-}
+    # the raw port is unreachable while UAB's ACL filters it, but it is what a
+    # VPN/tailnet/LAN client uses; the working public ingress is the Traefik
+    # router below on :80
+    ports:
+      - "8483:8080"
+    volumes:
+      # harness home: profiles, sessions, settings, browser-session credential
+      - dsh-home:/home/dsh/.dsh
+      - dsh-workspace:/workspace
+    networks:
+      - coolify
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=coolify
+      - traefik.http.routers.dsh-web-http.entrypoints=http
+      - traefik.http.routers.dsh-web-http.rule=Host(`${DSH_PUBLIC_HOST:-fko8440w84kk8wgkko0sk8k8.138.26.48.197.sslip.io}`)
+      - traefik.http.routers.dsh-web-http.service=dsh-web
+      - traefik.http.services.dsh-web.loadbalancer.server.port=8080
+    healthcheck:
+      # answers 401 until a browser session authenticates: either code means up
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:8080/').then(r=>process.exit([200,401].includes(r.status)?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  dsh-home:
+    name: dsh-home
+  dsh-workspace:
+    name: dsh-workspace
+
+networks:
+  coolify:
+    external: true
