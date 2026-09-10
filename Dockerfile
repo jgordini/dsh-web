@@ -1,8 +1,8 @@
 # dsh — DeepSeek Harness web UI, containerized so it survives terminal closes,
-# sleeps and reboots (Coolify `restart: unless-stopped`, Coolify restart policy).
+# sleeps and reboots.
 #
 # Host-agnostic: the workspace root is /workspace by default. Override at run
-# time with `-w <path>` (or compose `working_dir:`) and a matching bind mount.
+# time with `-w <path>` (or compose `working_dir:`) and a matching mount.
 FROM node:22-bookworm-slim
 
 # Pinned to the version the author's host runs so behaviour matches.
@@ -13,10 +13,11 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PATH=/pnpm:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 # Tools the harness's bash/terminal tools expect, plus the build chain the
-# transitive native modules (node-pty) compile against, plus python3.
+# transitive native modules (node-pty) compile against, plus python3 and socat
+# (the loopback bridge in the entrypoint).
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-      ca-certificates curl git git-lfs jq less procps ripgrep unzip \
+      ca-certificates curl git git-lfs jq less procps ripgrep unzip socat \
       python3 python3-venv python3-pip \
       build-essential pkg-config \
  && rm -rf /var/lib/apt/lists/*
@@ -37,13 +38,18 @@ RUN groupadd -g 501 dsh \
  && mkdir -p /workspace /home/dsh/.dsh \
  && chown -R dsh:dsh /home/dsh /workspace
 
+COPY entrypoint.sh /usr/local/bin/dsh-entrypoint.sh
+RUN chmod 0755 /usr/local/bin/dsh-entrypoint.sh
+
 USER dsh
 ENV HOME=/home/dsh \
-    DSH_HOME=/home/dsh/.dsh
+    DSH_HOME=/home/dsh/.dsh \
+    DSH_LISTEN_PORT=3080 \
+    GATEWAY_PORT=8080
 
 # Default workspace root. Mount something here (or change -w at run time).
 WORKDIR /workspace
-EXPOSE 3080
+# The bridged port; the harness itself stays on loopback (see entrypoint.sh).
+EXPOSE 8080
 
-ENTRYPOINT ["dsh"]
-CMD ["web", "--host", "0.0.0.0", "--port", "3080", "--no-open"]
+ENTRYPOINT ["/usr/local/bin/dsh-entrypoint.sh"]

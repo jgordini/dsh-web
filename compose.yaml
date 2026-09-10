@@ -15,11 +15,14 @@ services:
     environment:
       DSH_HOME: /home/dsh/.dsh
       DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+      # extra authorities the harness's browser-trust fence accepts
+      DSH_TRUSTED_HOSTS: ${DSH_TRUSTED_HOSTS:-}
     # same absolute path as the host so prompts and tool output stay consistent
     working_dir: /Users/jeremy/repos
     ports:
-      # loopback-only, same as the foreground `dsh web` bind
-      - "127.0.0.1:3080:3080"
+      # loopback-only publish; container 8080 is the bridge, harness stays on
+      # container-loopback 3080
+      - "127.0.0.1:3080:8080"
     volumes:
       # harness home: profiles, sessions, credentials, settings
       - dsh-home:/home/dsh/.dsh
@@ -32,7 +35,7 @@ services:
         - CMD
         - node
         - -e
-        - "fetch('http://127.0.0.1:3080/').then(r=>process.exit([200,401].includes(r.status)?0:1)).catch(()=>process.exit(1))"
+        - "fetch('http://127.0.0.1:8080/').then(r=>process.exit([200,401].includes(r.status)?0:1)).catch(()=>process.exit(1))"
       interval: 30s
       timeout: 5s
       retries: 3
